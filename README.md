@@ -21,7 +21,7 @@ and which did not, the later requiring some additional inspection to grade.
 
 ## Run against real assignment (default output)
 `uv run autograder.py --submissions "C:\example\path\to\submissions" --expected "C:\example\path\to\expected.txt"`
-NOTE: --output is not provided so output directory will default to same directory as submissions
+- NOTE: --output is not provided so output directory will default to same directory as submissions
 
 ## Run against real assignment (custom output)
 `uv run autograder.py --submissions "C:\example\path\to\submissions" --out "C:\example\path\to\graded\submissions" --expected "C:\example\path\to\expected.txt"`
