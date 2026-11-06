@@ -17,17 +17,17 @@ and which did not, the later requiring some additional inspection to grade.
 # Example usage
 
 ## Run against sample assignment
-- uv run autograder.py
+`uv run autograder.py`
 
 ## Run against real assignment (default output)
-- uv run autograder.py --submissions "C:\example\path\to\submissions" --expected "C:\example\path\to\expected.txt"
+`uv run autograder.py --submissions "C:\example\path\to\submissions" --expected "C:\example\path\to\expected.txt"`
 NOTE: --output is not provided so output directory will default to same directory as submissions
 
 ## Run against real assignment (custom output)
-- uv run autograder.py --submissions "C:\example\path\to\submissions" --out "C:\example\path\to\graded\submissions" --expected "C:\example\path\to\expected.txt"
+`uv run autograder.py --submissions "C:\example\path\to\submissions" --out "C:\example\path\to\graded\submissions" --expected "C:\example\path\to\expected.txt"`
 
-# Some additional options
-## Timeout
+# Some additional arguments
+## --timeout
 - Control timeout a submission can run for before we terminate. Defaults to 10 seconds.
-## Python
+## --python
 - Use a custom provided interpreter. Idk I guess the clanker thought this was necesscary?
