@@ -54,6 +54,7 @@ class NotebookScript:
     skipped: list[str] = field(default_factory=list)
     line_to_cell: dict[int, int] = field(default_factory=dict)
     language: str = "python"
+    display_expressions: bool = True
 
     def failing_cells(self, stderr: str) -> list[int]:
         """Map line numbers in a traceback back to notebook cell numbers."""
@@ -69,6 +70,8 @@ class NotebookScript:
             f"notebook: {notebook_name}",
             f"kernel language: {self.language}",
             f"cells: {self.notebook_cells} total, {self.code_cells} code",
+            "trailing expression display: "
+            + ("on" if self.display_expressions else "off (--tests mode)"),
             "skipped cells and lines:",
         ]
         if self.skipped:
@@ -170,8 +173,9 @@ def _prepare_cell(
     number: int,
     futures: list[str],
     seen_futures: set[str],
+    display_expressions: bool,
 ) -> str:
-    """Return plain Python for one cell, printing a trailing expression."""
+    """Return plain Python for one cell, optionally printing its last expression."""
     try:
         tree = ast.parse(source)
     except SyntaxError as exc:
@@ -191,7 +195,11 @@ def _prepare_cell(
         kept.append(statement)
     tree.body = kept
 
-    if tree.body and isinstance(tree.body[-1], ast.Expr):
+    if (
+        display_expressions
+        and tree.body
+        and isinstance(tree.body[-1], ast.Expr)
+    ):
         expression = ast.unparse(tree.body.pop().value)
         prefix = ast.unparse(tree) if tree.body else ""
         wrapped = f"{_DISPLAY_WRAPPER}({expression})"
@@ -203,8 +211,16 @@ def _prepare_cell(
     return source
 
 
-def build_notebook_script(path: Path) -> NotebookScript:
-    """Read ``path`` and produce an executable plain-Python equivalent."""
+def build_notebook_script(
+    path: Path,
+    display_expressions: bool = True,
+) -> NotebookScript:
+    """Read ``path`` and produce an executable plain-Python equivalent.
+
+    ``display_expressions`` controls whether a cell's trailing expression is
+    printed like Jupyter's displayhook would. Tests mode turns it off so the
+    generated script stays silent when imported.
+    """
     notebook = read_notebook(path)
     language = _kernel_language(notebook)
     if not _is_python_kernel(language):
@@ -231,7 +247,18 @@ def build_notebook_script(path: Path) -> NotebookScript:
             skipped.append(f"cell {number}: {line} (line dropped)")
         if not cleaned.strip():
             continue
-        prepared.append((number, _prepare_cell(cleaned, number, futures, seen_futures)))
+        prepared.append(
+            (
+                number,
+                _prepare_cell(
+                    cleaned,
+                    number,
+                    futures,
+                    seen_futures,
+                    display_expressions,
+                ),
+            )
+        )
 
     lines: list[str] = [f"# Extracted from notebook: {path.name}"]
     if futures:
@@ -257,4 +284,5 @@ def build_notebook_script(path: Path) -> NotebookScript:
         skipped=skipped,
         line_to_cell=line_to_cell,
         language=language,
+        display_expressions=display_expressions,
     )

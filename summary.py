@@ -13,22 +13,33 @@ def build_summary(
     matched: list[str],
     review: list[tuple[str, str]],
     processed: int,
+    tests: Path | None = None,
 ) -> str:
-    """Return the contents of summary.txt."""
+    """Return the contents of summary.txt.
+
+    ``tests`` is the test script when the autograder ran in --tests mode.
+    """
     lines = [
         "Autograder summary",
         "==================",
         f"Generated : {datetime.now():%Y-%m-%d %H:%M:%S}",
         f"Submissions: {submissions}",
-        f"Expected  : {expected}",
-        f"Output    : {out_dir}",
-        f"Graded    : {processed} submission(s)",
-        f"Matched   : {len(matched)}",
-        f"Review    : {len(review)}",
-        "",
-        "MATCHED EXACTLY (no manual review needed)",
-        "-----------------------------------------",
     ]
+    if tests is not None:
+        lines.append(f"Tests     : {tests}")
+        lines.append("Mode      : test script run against each extracted.py")
+    lines.extend(
+        [
+            f"Expected  : {expected}",
+            f"Output    : {out_dir}",
+            f"Graded    : {processed} submission(s)",
+            f"Matched   : {len(matched)}",
+            f"Review    : {len(review)}",
+            "",
+            "MATCHED EXACTLY (no manual review needed)",
+            "-----------------------------------------",
+        ]
+    )
     lines.extend(f"  {name}" for name in sorted(matched))
     if not matched:
         lines.append("  (none)")
