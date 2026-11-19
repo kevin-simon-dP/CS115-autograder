@@ -38,7 +38,12 @@ from pathlib import Path
 from discovery import display_name, find_notebooks, find_py_files
 from notebook import NotebookError, NotebookScript, build_notebook_script
 from runner import decode, make_diff, run_submission, write_error_log
-from summary import build_summary
+from summary import build_score_summary, build_summary
+
+# The rubric grader lives in its own folder; make its modules importable.
+sys.path.append(str(Path(__file__).resolve().parent / "FunctionGrader"))
+from grader import Report, run_harness, score  # noqa: E402
+from rubric import Rubric, load_spec  # noqa: E402
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -62,6 +67,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=Path,
         default=None,
         help="Output folder (default: '<submissions> - graded')",
+    )
+    parser.add_argument(
+        "--rubric",
+        type=Path,
+        default=None,
+        help="Rubric file: grade by calling functions instead of diffing output",
     )
     parser.add_argument(
         "--timeout",
@@ -89,6 +100,7 @@ class GradedSubmission:
     name: str
     reasons: list[str] = field(default_factory=list)
     skipped: bool = False
+    report: Report | None = None  # set in rubric mode
 
 
 def grade_student(
@@ -96,6 +108,7 @@ def grade_student(
     expected: bytes,
     args: argparse.Namespace,
     out_dir: Path,
+    rubric: Rubric | None = None,
 ) -> GradedSubmission:
     """Grade a single student directory, writing artifacts under ``out_dir``."""
     name = display_name(student_dir.name)
@@ -158,6 +171,18 @@ def grade_student(
     else:
         script_path = py_files[0]
 
+    if rubric is not None:
+        return grade_with_rubric(
+            name,
+            graded_dir,
+            script_path,
+            submitted=notebooks[0] if notebooks else script_path,
+            cwd=run_cwd,
+            extra_pythonpath=extra_pythonpath,
+            rubric=rubric,
+            args=args,
+        )
+
     returncode, stdout, stderr, timed_out = run_submission(
         script_path,
         args.python,
@@ -205,6 +230,40 @@ def grade_student(
     return GradedSubmission(name, reasons)
 
 
+def grade_with_rubric(
+    name: str,
+    graded_dir: Path,
+    script_path: Path,
+    *,
+    submitted: Path,
+    cwd: Path | None,
+    extra_pythonpath: Path | None,
+    rubric: Rubric,
+    args: argparse.Namespace,
+) -> GradedSubmission:
+    """Grade one student by calling their functions (see FunctionGrader/)."""
+    result = run_harness(
+        script_path,
+        args.rubric,
+        rubric,
+        args.python,
+        args.timeout,
+        cwd=cwd,
+        extra_pythonpath=extra_pythonpath,
+    )
+    report = score(
+        rubric,
+        result,
+        source=script_path.read_text(encoding="utf-8", errors="replace"),
+        file_name=submitted.name,
+        student_name=name,
+    )
+    (graded_dir / "score.txt").write_text(report.text(), encoding="utf-8")
+    if result.harness_error:
+        (graded_dir / "error.txt").write_text(result.harness_error, encoding="utf-8")
+    return GradedSubmission(name, report.review_reasons(), report=report)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
@@ -214,11 +273,19 @@ def main(argv: list[str] | None = None) -> int:
     if not submissions.is_dir():
         print(f"error: submissions folder not found: {submissions}", file=sys.stderr)
         return 2
-    if not expected_path.is_file():
-        print(f"error: expected output file not found: {expected_path}", file=sys.stderr)
-        return 2
-
-    expected = expected_path.read_bytes()
+    rubric: Rubric | None = None
+    expected = b""
+    if args.rubric is not None:
+        args.rubric = args.rubric.resolve()
+        if not args.rubric.is_file():
+            print(f"error: rubric file not found: {args.rubric}", file=sys.stderr)
+            return 2
+        rubric = load_spec(args.rubric)
+    else:
+        if not expected_path.is_file():
+            print(f"error: expected output file not found: {expected_path}", file=sys.stderr)
+            return 2
+        expected = expected_path.read_bytes()
 
     out_dir = args.out
     if out_dir is None:
@@ -228,6 +295,7 @@ def main(argv: list[str] | None = None) -> int:
 
     matched: list[str] = []
     review: list[tuple[str, str]] = []
+    scored: list[GradedSubmission] = []
     processed = 0
 
     students = sorted(
@@ -239,7 +307,16 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     for student_dir in students:
-        result = grade_student(student_dir, expected, args, out_dir)
+        result = grade_student(student_dir, expected, args, out_dir, rubric)
+        if rubric is not None:
+            scored.append(result)
+            if result.report is None:
+                print(f"[SKIP] {result.name}: {result.reasons[0]}")
+            else:
+                r = result.report
+                print(f"[SCORED] {result.name}: auto {r.auto_earned():g}/{r.auto_points():g}"
+                      + (f", penalty -{r.penalty:g}" if r.penalty else ""))
+            continue
         if result.reasons:
             review.append((result.name, "; ".join(result.reasons)))
             label = "SKIP" if result.skipped else "REVIEW"
@@ -251,6 +328,17 @@ def main(argv: list[str] | None = None) -> int:
             processed += 1
 
     summary_path = out_dir / "summary.txt"
+    if rubric is not None:
+        summary_path.write_text(
+            build_score_summary(submissions, args.rubric, out_dir, scored),
+            encoding="utf-8",
+        )
+        print()
+        print(f"Scored: {sum(1 for s in scored if s.report)}  |  "
+              f"Skipped: {sum(1 for s in scored if not s.report)}")
+        print(f"Summary written to {summary_path}")
+        return 0
+
     summary_path.write_text(
         build_summary(
             submissions=submissions,

@@ -26,6 +26,13 @@ and which did not, the later requiring some additional inspection to grade.
 ## Run against real assignment (custom output)
 `uv run autograder.py --submissions "C:\example\path\to\submissions" --out "C:\example\path\to\graded\submissions" --expected "C:\example\path\to\expected.txt"`
 
+# Function grader (rubric mode)
+Put the downloaded submissions folder in the repo root (next to `autograder.py`), then run:
+
+`uv run autograder.py --submissions "<submissions folder name>" --rubric FunctionGrader/rubrics/functions_1.py`
+
+Results are written to `<submissions folder name> - graded`.
+
 # Some additional arguments
 ## --timeout
 - Control timeout a submission can run for before we terminate. Defaults to 10 seconds.
